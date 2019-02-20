@@ -1,4 +1,4 @@
-# bts-ee-reports
+# bts-ce-reports
 
 Boda Telecom Suite Reporting Services. This runs scheduled reports, sends emails, generates downloads in different formats
 
@@ -12,7 +12,7 @@ Boda Telecom Suite Reporting Services. This runs scheduled reports, sends emails
 ### Gitlab container registry
 ```
 docker run \
---name bts-ee-reports \
+--name bts-ce-reports \
 -e BTS_DB_HOST='192.168.99.100' \
 -e BTS_DB_NAME='bts' \
 -e BTS_DB_USER='bodastage' \
