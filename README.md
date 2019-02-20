@@ -25,7 +25,7 @@ docker run \
 -e BTS_MQ_PASS='Password@7' \
 -e BTS_MQ_VHOST='/bs' \
 -v `pwd`:/app \
-registry.gitlab.com/bts-ee/bts-ee-reports
+registry.gitlab.com/bts-ce/bts-ce-reports
 ```
 
 ## Resources
