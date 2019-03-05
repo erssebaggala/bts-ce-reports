@@ -9,6 +9,7 @@ import subprocess
 import logging
 import csv
 import logging
+import time
 
 # Report directory
 REPORT_DIR='/reports'
@@ -44,44 +45,51 @@ channel = connection.channel()
 
 channel.queue_declare(queue='reports', durable=True)
 
-
-def generate_report(report_id):
+def generate_report(task_id):
 
     engine = create_engine('postgresql://{}:{}@{}/{}'.format(db_user, db_pass, db_host, db_name))
     metadata = MetaData()
 
     ReportTaskLog = Table('reports_task_log', metadata, autoload=True, autoload_with=engine, schema="reports")
-    Report = Table('reports', metadata, autoload=True, autoload_with=engine, schema="reports")
-    ReportCategory = Table('report_categories', metadata, autoload=True, autoload_with=engine, schema="reports")
 
     Session = sessionmaker(bind=engine)
     session = Session()
 
 
-
     # Log request in report task log
 
-    report = session.query(Report).filter_by(pk=report_id).first()
-    if report is None:
-        logging.info("report_id: {} does not exit!".format(report_id))
+    report_task_log = session.query(ReportTaskLog).filter_by(pk=task_id).first()
+
+    if report_task_log is None:
+        logging.info("task_id: {} does not exit!".format(task_id))
         return
 
-    category = session.query(ReportCategory).filter_by(pk=report.category_pk).first()
+    options = report_task_log.options
 
-    sanitized_filename = "{}__{}".format(category.name.lower().replace(" ", "_"), report.name.lower().replace(" ", "_"))
-    filename = "{}.csv".format(sanitized_filename)
+    query = options['query']
+    format = 'csv' #pdf, xml, xlsx, json
+    filename = time.strftime("%Y%m%d%H%M")
+
+    # Get requried format
+    if 'format' in options:
+        format = options['format']
+
+    # Add format extension to file name
+    if 'filename' in options:
+        filename = "{}.{}".format(options['filename'], format)
+
     path_to_file = '{}/{}'.format(REPORT_DIR, filename)
 
     # Note: Python 2 uses 'wb'
     outfile = open( path_to_file, 'w', newline='')
     outcsv = csv.writer(outfile)
 
-    table_columns = engine.execute(report.query).keys()
+    table_columns = engine.execute(text(query)).keys()
 
     # Write header as the first row
     outcsv.writerow(table_columns)
 
-    result = engine.execute(report.query)
+    result = engine.execute(query)
     records = result.fetchall()
 
     [outcsv.writerow([getattr(curr, column) for column in table_columns]) for curr in records]
@@ -101,7 +109,7 @@ def callback(ch, method, properties, body):
         engine.execute(text("UPDATE reports.reports_task_log SET status = :status WHERE pk = :task_id"),status='RUNNING', task_id=task_id)
         logger.info("Task {} marked as RUNNING".format(task_id))
 
-        filename = generate_report(data['report_id'])
+        filename = generate_report(data['task_id'])
 
         engine.execute(text("UPDATE reports.reports_task_log SET status = :status, log = :filename WHERE pk = :task_id"), status='FINISHED', filename=filename, task_id=task_id)
         logger.info("Task {} marked as FINISHED".format(task_id))
