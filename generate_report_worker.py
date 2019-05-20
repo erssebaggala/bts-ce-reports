@@ -12,7 +12,8 @@ import logging
 import time
 
 # Report directory
-REPORT_DIR='/reports'
+REPORT_DIR=os.getenv("BTS_REPORTS_DIR", "/reports")
+#REPORT_DIR='.'
 
 logger = logging.getLogger('generate_report_worker')
 
@@ -46,7 +47,9 @@ channel = connection.channel()
 channel.queue_declare(queue='reports', durable=True)
 
 def generate_report(task_id):
-
+    """
+    Generate a csv report from the query
+    """
     engine = create_engine('postgresql://{}:{}@{}/{}'.format(db_user, db_pass, db_host, db_name))
     metadata = MetaData()
 
@@ -55,37 +58,38 @@ def generate_report(task_id):
     Session = sessionmaker(bind=engine)
     session = Session()
 
-
     # Log request in report task log
 
     report_task_log = session.query(ReportTaskLog).filter_by(pk=task_id).first()
-
+    
     if report_task_log is None:
         logging.info("task_id: {} does not exit!".format(task_id))
         return
-
+    
     options = report_task_log.options
-
+    
     query = options['query']
     format = 'csv' #pdf, xml, xlsx, json
     filename = time.strftime("%Y%m%d%H%M")
-
+    
     # Get requried format
     if 'format' in options:
         format = options['format']
-
+    
     # Add format extension to file name
     if 'filename' in options:
         filename = "{}.{}".format(options['filename'], format)
-
+    
     path_to_file = '{}/{}'.format(REPORT_DIR, filename)
-
+    
     # Note: Python 2 uses 'wb'
     outfile = open( path_to_file, 'w', newline='')
+
+    
     outcsv = csv.writer(outfile)
-
+    
     table_columns = engine.execute(text(query)).keys()
-
+    
     # Write header as the first row
     outcsv.writerow(table_columns)
 
@@ -108,9 +112,9 @@ def callback(ch, method, properties, body):
     try:
         engine.execute(text("UPDATE reports.reports_task_log SET status = :status WHERE pk = :task_id"),status='RUNNING', task_id=task_id)
         logger.info("Task {} marked as RUNNING".format(task_id))
-
+        
         filename = generate_report(data['task_id'])
-
+        
         engine.execute(text("UPDATE reports.reports_task_log SET status = :status, log = :filename WHERE pk = :task_id"), status='FINISHED', filename=filename, task_id=task_id)
         logger.info("Task {} marked as FINISHED".format(task_id))
     except Exception as e:
@@ -119,10 +123,11 @@ def callback(ch, method, properties, body):
         logger.info("Task {} marked as FAILED because of error:{}".format(task_id, str(e)))
 
 
-channel.basic_consume(callback,
+channel.basic_consume(on_message_callback=callback,
                       queue='reports',
-                      no_ack=True)
+                      auto_ack=True)
 
 logger.info('Waiting for report generation requests. To exit press CTRL+C')
+logger.info("Configured report directory is {} ".format(REPORT_DIR))
 
 channel.start_consuming()

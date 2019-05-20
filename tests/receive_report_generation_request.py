@@ -46,10 +46,11 @@ channel.queue_declare(queue='reports', durable=True)
 
 
 def generate_report(report_id):
-
+    """Generate report with the provided id """
+	
     engine = create_engine('postgresql://{}:{}@{}/{}'.format(db_user, db_pass, db_host, db_name))
     metadata = MetaData()
-
+    
     ReportTaskLog = Table('reports_task_log', metadata, autoload=True, autoload_with=engine, schema="reports")
     Report = Table('reports', metadata, autoload=True, autoload_with=engine, schema="reports")
     ReportCategory = Table('report_categories', metadata, autoload=True, autoload_with=engine, schema="reports")
@@ -101,20 +102,21 @@ def callback(ch, method, properties, body):
     try:
         engine.execute(text("UPDATE reports.reports_task_log SET status = :status WHERE pk = :task_id"),status='RUNNING', task_id=task_id)
         logger.info("Task {} marked as RUNNING".format(task_id))
-
+        
         filename = generate_report(data['report_id'])
-
+        
         engine.execute(text("UPDATE reports.reports_task_log SET status = :status, log = :filename WHERE pk = :task_id"), status='FINISHED', filename=filename, task_id=task_id)
         logger.info("Task {} marked as FINISHED".format(task_id))
+		
     except Exception as e:
         t= text("UPDATE reports.reports_task_log SET status = :status, log=:log WHERE pk = :task_id")
         engine.execute(t, status='FAILED', log=str(e), task_id=task_id)
         logger.info("Task {} marked as FAILED because of error:{}".format(task_id, str(e)))
 
 
-channel.basic_consume(callback,
+channel.basic_consume(on_message_callback=callback,
                       queue='reports',
-                      no_ack=True)
+                      auto_ack=False)
 
 logger.info('Waiting for report generation requests. To exit press CTRL+C')
 
